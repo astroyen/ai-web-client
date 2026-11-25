@@ -2,6 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src https://generativelanguage.googleapis.com https://api.openai.com https://api.github.com; base-uri 'none'; form-action 'none';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -69,9 +70,12 @@
       <label style="flex-direction:row; align-items:center; gap:8px;">
         <input id="cfgAutoSave" type="checkbox" style="width:auto;" /> 每次回覆後自動存檔至 GitHub
       </label>
-      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
-        <button class="secondary" onclick="toggleSettings(false)">取消</button>
-        <button onclick="saveSettings()">儲存設定並更新模型</button>
+      <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; margin-top:8px;">
+        <button class="secondary" onclick="forceReload()">強制更新頁面</button>
+        <div style="display:flex; gap:8px;">
+          <button class="secondary" onclick="toggleSettings(false)">取消</button>
+          <button onclick="saveSettings()">儲存設定並更新模型</button>
+        </div>
       </div>
     </div>
   </div>
@@ -128,9 +132,15 @@
       return parseInt(m[1], 10) * 100 + (m[2] ? parseInt(m[2], 10) : 0);
     }
 
+    function forceReload() {
+      location.replace(`${location.pathname}?t=${Date.now()}`);
+    }
+
     async function fetchGeminiModels(apiKey) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=100`;
-      const res = await fetch(url);
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100';
+      const res = await fetch(url, {
+        headers: { 'x-goog-api-key': apiKey }
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message || `Gemini Models HTTP ${res.status}`);
 
@@ -376,10 +386,13 @@
         return { role: m.role === 'assistant' ? 'model' : 'user', parts };
       });
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
         body: JSON.stringify({ contents })
       });
       const data = await res.json();
