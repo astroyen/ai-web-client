@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Personal AI Sync</title>
+  <style>
+    :root { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --accent: #3b82f6; --border: #334155; }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { margin: 0; background: var(--bg); color: var(--text); height: 100dvh; display: flex; flex-direction: column; }
+    header { display: flex; gap: 8px; align-items: center; padding: 10px 12px; background: var(--card); border-bottom: 1px solid var(--border); }
+    select, button, input, textarea { background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+    button { cursor: pointer; background: var(--accent); border: none; font-weight: 600; }
+    button.secondary { background: #334155; }
+    button:disabled { opacity: 0.5; }
+    #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { max-width: 88%; padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; line-height: 1.5; word-break: break-word; font-size: 15px; }
+    .user { align-self: flex-end; background: var(--accent); color: #fff; }
+    .assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--border); }
+    .meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    footer { padding: 10px 12px; background: var(--card); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }
+    #prompt { flex: 1; resize: none; min-height: 42px; max-height: 120px; }
+    #settingsModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); padding: 20px; z-index: 99; overflow-y: auto; }
+    .modal-box { background: var(--card); max-width: 480px; margin: 20px auto; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
+    label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+    #status { font-size: 12px; color: #34d399; padding: 4px 12px; background: #0b1220; min-height: 22px; }
+  </style>
+</head>
+<body>
+  <header>
+    <select id="modelSelect" style="flex:1;">
+      <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash</option>
+      <option value="gemini:gemini-2.5-pro">Gemini 2.5 Pro</option>
+      <option value="openai:gpt-4o-mini">GPT-4o mini</option>
+      <option value="openai:gpt-4o">GPT-4o</option>
+    </select>
+    <button class="secondary" onclick="newChat()">新對話</button>
+    <button class="secondary" onclick="saveToGitHub()">存檔</button>
+    <button class="secondary" onclick="toggleSettings(true)">⚙️</button>
+  </header>
+
+  <div id="status">就緒（金鑰僅儲存於本機瀏覽器）</div>
+  <main id="chat"></main>
+
+  <footer>
+    <textarea id="prompt" rows="1" placeholder="輸入問題..."></textarea>
+    <button id="sendBtn" onclick="sendMessage()">送出</button>
+  </footer>
+
+  <div id="settingsModal">
+    <div class="modal-box">
+      <h3 style="margin:0;">本機 API 與 GitHub 設定</h3>
+      <label>Google Gemini API Key <input id="cfgGeminiKey" type="password" placeholder="AIza..." /></label>
+      <label>OpenAI API Key <input id="cfgOpenAIKey" type="password" placeholder="sk-..." /></label>
+      <label>GitHub 帳號 (Owner) <input id="cfgGhOwner" type="text" placeholder="your-username" /></label>
+      <label>私人倉庫名稱 (Repo) <input id="cfgGhRepo" type="text" placeholder="ai-sync-notes" /></label>
+      <label>GitHub PAT (Fine-grained Contents R/W) <input id="cfgGhToken" type="password" placeholder="github_pat_..." /></label>
+      <label style="flex-direction:row; align-items:center; gap:8px;">
+        <input id="cfgAutoSave" type="checkbox" style="width:auto;" /> 每次回覆後自動存檔至 GitHub
+      </label>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
+        <button class="secondary" onclick="toggleSettings(false)">取消</button>
+        <button onclick="saveSettings()">儲存設定</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let messages = [];
+    let currentFilePath = null;
+    let currentFileSha = null;
+
+    const getCfg = () => JSON.parse(localStorage.getItem('ai_sync_cfg') || '{}');
+    const setStatus = (msg, isErr = false) => {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.style.color = isErr ? '#f87171' : '#34d399';
+    };
+
+    function toggleSettings(show) {
+      const cfg = getCfg();
+      if (show) {
+        document.getElementById('cfgGeminiKey').value = cfg.geminiKey || '';
+        document.getElementById('cfgOpenAIKey').value = cfg.openaiKey || '';
+        document.getElementById('cfgGhOwner').value = cfg.ghOwner || '';
+        document.getElementById('cfgGhRepo').value = cfg.ghRepo || 'ai-sync-notes';
+        document.getElementById('cfgGhToken').value = cfg.ghToken || '';
+        document.getElementById('cfgAutoSave').checked = cfg.autoSave !== false;
+      }
+      document.getElementById('settingsModal').style.display = show ? 'block' : 'none';
+    }
+
+    function saveSettings() {
+      const cfg = {
+        geminiKey: document.getElementById('cfgGeminiKey').value.trim(),
+        openaiKey: document.getElementById('cfgOpenAIKey').value.trim(),
+        ghOwner: document.getElementById('cfgGhOwner').value.trim(),
+        ghRepo: document.getElementById('cfgGhRepo').value.trim(),
+        ghToken: document.getElementById('cfgGhToken').value.trim(),
+        autoSave: document.getElementById('cfgAutoSave').checked
+      };
+      localStorage.setItem('ai_sync_cfg', JSON.stringify(cfg));
+      toggleSettings(false);
+      setStatus('設定已儲存至本機');
+    }
+
+    function newChat() {
+      messages = [];
+      currentFilePath = null;
+      currentFileSha = null;
+      document.getElementById('chat').innerHTML = '';
+      setStatus('已開啟新對話');
+    }
+
+    function appendMsg(role, content, modelLabel = '') {
+      const chat = document.getElementById('chat');
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      if (modelLabel) {
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = modelLabel;
+        div.appendChild(meta);
+      }
+      div.appendChild(document.createTextNode(content));
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function callGemini(model, apiKey) {
+      const contents = messages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || `Gemini HTTP ${res.status}`);
+      return data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(無回應內容)';
+    }
+
+    async function callOpenAI(model, apiKey) {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: messages.map(m => ({ role: m.role, content: m.content }))
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || `OpenAI HTTP ${res.status}`);
+      return data.choices?.[0]?.message?.content || '(無回應內容)';
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('prompt');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const cfg = getCfg();
+      const [provider, model] = document.getElementById('modelSelect').value.split(':');
+      if (provider === 'gemini' && !cfg.geminiKey) return toggleSettings(true);
+      if (provider === 'openai' && !cfg.openaiKey) return toggleSettings(true);
+
+      input.value = '';
+      messages.push({ role: 'user', content: text, model, ts: new Date().toISOString() });
+      appendMsg('user', text);
+
+      const btn = document.getElementById('sendBtn');
+      btn.disabled = true;
+      setStatus(`正在呼叫 ${model}...`);
+
+      try {
+        const reply = provider === 'gemini'
+          ? await callGemini(model, cfg.geminiKey)
+          : await callOpenAI(model, cfg.openaiKey);
+
+        messages.push({ role: 'assistant', content: reply, model, ts: new Date().toISOString() });
+        appendMsg('assistant', reply, model);
+        setStatus(`回覆完成 (${model})`);
+
+        if (cfg.autoSave !== false && cfg.ghToken && cfg.ghOwner && cfg.ghRepo) {
+          await saveToGitHub();
+        }
+      } catch (err) {
+        setStatus(`錯誤：${err.message}`, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function utf8ToBase64(str) {
+      const bytes = new TextEncoder().encode(str);
+      let binary = '';
+      for (const b of bytes) binary += String.fromCharCode(b);
+      return btoa(binary);
+    }
+
+    async function saveToGitHub() {
+      if (messages.length === 0) return setStatus('尚無對話可存檔', true);
+      const cfg = getCfg();
+      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) return toggleSettings(true);
+
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+      if (!currentFilePath) {
+        currentFilePath = `mobile-notes/${dateStr}/${dateStr}_${timeStr}.md`;
+      }
+
+      const mdLines = [
+        `# Mobile AI Note (${dateStr})`,
+        `- Source: iPhone PWA`,
+        `- Updated: ${now.toISOString()}`,
+        '',
+        ...messages.map(m =>
+          m.role === 'user'
+            ? `## User\n\n${m.content}\n`
+            : `## Assistant (${m.model})\n\n${m.content}\n`
+        )
+      ].join('\n');
+
+      setStatus('正在同步至 GitHub...');
+      try {
+        const url = `https://api.github.com/repos/${cfg.ghOwner}/${cfg.ghRepo}/contents/${currentFilePath}`;
+        const body = {
+          message: `sync: mobile note ${currentFilePath}`,
+          content: utf8ToBase64(mdLines),
+          ...(currentFileSha ? { sha: currentFileSha } : {})
+        };
+        const res = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${cfg.ghToken}`,
+            'Accept': 'application/vnd.github+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || `GitHub HTTP ${res.status}`);
+        currentFileSha = data.content.sha;
+        setStatus(`已同步至 GitHub：${currentFilePath}`);
+      } catch (err) {
+        setStatus(`GitHub 同步失敗：${err.message}`, true);
+      }
+    }
+  </script>
+</body>
+</html>
