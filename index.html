@@ -9,15 +9,17 @@
   <title>Personal AI Sync</title>
   <style>
     :root { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --accent: #3b82f6; --border: #334155; }
-    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { margin: 0; background: var(--bg); color: var(--text); height: 100dvh; display: flex; flex-direction: column; }
-    header { display: flex; gap: 6px; align-items: center; padding: max(10px, env(safe-area-inset-top)) 10px 10px; background: var(--card); border-bottom: 1px solid var(--border); }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: var(--bg); color: var(--text); height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+    header { display: flex; gap: 8px; align-items: center; padding: max(10px, env(safe-area-inset-top)) 10px 10px; background: var(--card); border-bottom: 1px solid var(--border); }
     select, button, input, textarea { background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
     select { min-width: 0; }
     button { cursor: pointer; background: var(--accent); border: none; font-weight: 600; white-space: nowrap; }
     button.secondary { background: #334155; }
     button:disabled { opacity: 0.5; }
-    #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .icon-btn { padding: 8px 10px; font-size: 16px; line-height: 1; }
+    #status { font-size: 12px; color: #34d399; padding: 5px 12px; background: #0b1220; min-height: 24px; border-bottom: 1px solid #1e293b; }
+    #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; -webkit-overflow-scrolling: touch; }
     .msg { max-width: 88%; padding: 10px 12px; border-radius: 12px; white-space: pre-wrap; line-height: 1.5; word-break: break-word; font-size: 15px; }
     .user { align-self: flex-end; background: var(--accent); color: #fff; }
     .assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--border); }
@@ -30,41 +32,81 @@
     .preview-remove { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #ef4444; color: #fff; font-size: 12px; padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1; }
     footer { padding: 10px 12px max(10px, env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }
     #prompt { flex: 1; resize: none; min-height: 42px; max-height: 120px; }
-    #settingsModal, #historyModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); padding: 20px; z-index: 99; overflow-y: auto; }
-    .modal-box { background: var(--card); max-width: 480px; margin: 20px auto; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
-    .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 62dvh; overflow-y: auto; }
-    .history-item { text-align: left; background: #0f172a; border: 1px solid var(--border); padding: 10px 12px; border-radius: 8px; font-weight: 500; display: flex; flex-direction: column; gap: 3px; }
+
+    /* 左側滑出抽屜選單 (往右滑開啟) */
+    #drawerBackdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 80; }
+    #drawerBackdrop.open { display: block; }
+    #drawer {
+      position: fixed; top: 0; left: 0; bottom: 0; width: min(82vw, 310px);
+      background: var(--card); border-right: 1px solid var(--border); z-index: 90;
+      transform: translateX(-100%); transition: transform 0.22s ease-out;
+      display: flex; flex-direction: column;
+      padding-top: max(14px, env(safe-area-inset-top));
+      padding-bottom: max(14px, env(safe-area-inset-bottom));
+    }
+    #drawer.open { transform: translateX(0); }
+    .drawer-top { padding: 0 12px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+    .drawer-title-row { display: flex; justify-content: space-between; align-items: center; }
+    .drawer-section { padding: 10px 12px 6px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--muted); }
+    #historyStatus { font-size: 12px; color: var(--muted); padding: 0 12px 6px; }
+    #historyList { flex: 1; overflow-y: auto; padding: 0 12px 10px; display: flex; flex-direction: column; gap: 8px; -webkit-overflow-scrolling: touch; }
+    .history-item { text-align: left; background: #0f172a; border: 1px solid var(--border); padding: 10px 12px; border-radius: 8px; font-weight: 500; display: flex; flex-direction: column; gap: 3px; width: 100%; }
+    .history-item.active { border-color: var(--accent); background: #172554; }
     .history-item .h-title { font-size: 14px; color: var(--text); }
     .history-item .h-path { font-size: 11px; color: var(--muted); word-break: break-all; }
-    .icon-btn { padding: 8px 9px; font-size: 15px; line-height: 1; }
+    .drawer-footer { padding: 10px 12px 0; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+
+    /* 設定彈窗 */
+    #settingsModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); padding: 20px; z-index: 100; overflow-y: auto; }
+    .modal-box { background: var(--card); max-width: 480px; margin: 20px auto; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
     label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
-    #status { font-size: 12px; color: #34d399; padding: 4px 12px; background: #0b1220; min-height: 22px; }
   </style>
 </head>
 <body>
   <header>
+    <button class="secondary icon-btn" onclick="openDrawer()" title="開啟側邊選單（或往右滑）">☰</button>
     <select id="modelSelect" style="flex:1;" onchange="saveSelectedModel()">
       <option value="">載入可用模型中...</option>
     </select>
-    <button class="secondary icon-btn" id="refreshBtn" onclick="loadModels()" title="重新抓取 API 可用模型">🔄</button>
-    <button class="secondary icon-btn" onclick="openHistory()" title="歷史對話紀錄">📜</button>
-    <button class="secondary icon-btn" onclick="newChat()" title="開啟新對話">➕</button>
     <button class="secondary icon-btn" onclick="saveToGitHub()" title="存檔至 GitHub">💾</button>
     <button class="secondary icon-btn" onclick="toggleSettings(true)" title="設定">⚙️</button>
   </header>
 
-  <div id="status">就緒（金鑰僅儲存於本機瀏覽器）</div>
+  <div id="status">往右滑可開啟新對話與歷史紀錄</div>
   <main id="chat"></main>
 
   <div id="previewBar"></div>
 
   <footer>
     <input id="imageInput" type="file" accept="image/*" multiple style="display:none;" onchange="handleImageSelect(event)" />
-    <button class="secondary" id="imgBtn" onclick="document.getElementById('imageInput').click()" title="上傳圖片或拍照">📷</button>
+    <button class="secondary icon-btn" id="imgBtn" onclick="document.getElementById('imageInput').click()" title="上傳圖片或拍照">📷</button>
     <textarea id="prompt" rows="1" placeholder="輸入問題（可附加圖片）..."></textarea>
     <button id="sendBtn" onclick="sendMessage()">送出</button>
   </footer>
 
+  <!-- 左側滑出選單 -->
+  <div id="drawerBackdrop" onclick="closeDrawer()"></div>
+  <aside id="drawer">
+    <div class="drawer-top">
+      <div class="drawer-title-row">
+        <strong>對話選單</strong>
+        <button class="secondary" style="padding:4px 10px;" onclick="closeDrawer()">✕</button>
+      </div>
+      <button style="width:100%; padding:10px;" onclick="newChat(); closeDrawer();">＋ 開啟新對話</button>
+    </div>
+    <div class="drawer-section">
+      <span>歷史對話紀錄（GitHub）</span>
+      <button class="secondary" style="padding:4px 8px; font-size:12px;" onclick="loadHistoryList()">🔄 更新</button>
+    </div>
+    <div id="historyStatus"></div>
+    <div id="historyList"></div>
+    <div class="drawer-footer">
+      <button class="secondary" id="refreshBtn" style="flex:1;" onclick="loadModels()">🔄 更新模型</button>
+      <button class="secondary" style="flex:1;" onclick="closeDrawer(); toggleSettings(true);">⚙️ API 設定</button>
+    </div>
+  </aside>
+
+  <!-- 設定視窗 -->
   <div id="settingsModal">
     <div class="modal-box">
       <h3 style="margin:0;">本機 API 與 GitHub 設定</h3>
@@ -86,25 +128,12 @@
     </div>
   </div>
 
-  <div id="historyModal">
-    <div class="modal-box">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0;">GitHub 歷史對話紀錄</h3>
-        <button class="secondary" onclick="openHistory()">重新整理</button>
-      </div>
-      <div id="historyStatus" style="font-size:12px; color:var(--muted);"></div>
-      <div id="historyList" class="history-list"></div>
-      <div style="display:flex; justify-content:flex-end; margin-top:4px;">
-        <button class="secondary" onclick="toggleHistory(false)">關閉</button>
-      </div>
-    </div>
-  </div>
-
   <script>
     let messages = [];
     let pendingImages = [];
     let currentFilePath = null;
     let currentFileSha = null;
+    let historyLoaded = false;
 
     const getCfg = () => JSON.parse(localStorage.getItem('ai_sync_cfg') || '{}');
     const setStatus = (msg, isErr = false) => {
@@ -117,6 +146,45 @@
       const val = document.getElementById('modelSelect').value;
       if (val) localStorage.setItem('ai_sync_last_model', val);
     }
+
+    function openDrawer() {
+      document.getElementById('drawer').classList.add('open');
+      document.getElementById('drawerBackdrop').classList.add('open');
+      if (!historyLoaded) loadHistoryList();
+    }
+
+    function closeDrawer() {
+      document.getElementById('drawer').classList.remove('open');
+      document.getElementById('drawerBackdrop').classList.remove('open');
+    }
+
+    // 支援向右滑開啟側邊欄、向左滑關閉側邊欄
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchTracking = false;
+
+    document.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      if (document.getElementById('settingsModal').style.display === 'block') return;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      touchTracking = true;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+      if (!touchTracking || !e.changedTouches.length) return;
+      touchTracking = false;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+
+      const isOpen = document.getElementById('drawer').classList.contains('open');
+      if (dx > 0 && !isOpen) {
+        openDrawer();
+      } else if (dx < 0 && isOpen) {
+        closeDrawer();
+      }
+    }, { passive: true });
 
     function toggleSettings(show) {
       const cfg = getCfg();
@@ -141,6 +209,7 @@
         autoSave: document.getElementById('cfgAutoSave').checked
       };
       localStorage.setItem('ai_sync_cfg', JSON.stringify(cfg));
+      historyLoaded = false;
       toggleSettings(false);
       setStatus('設定已儲存，正在抓取可用模型...');
       await loadModels();
@@ -214,7 +283,7 @@
 
       if (!cfg.geminiKey && !cfg.openaiKey) {
         select.innerHTML = '<option value="">請先點 ⚙️ 填入 API Key</option>';
-        setStatus('請先點右上角 ⚙️ 設定 Gemini 或 OpenAI API Key', true);
+        setStatus('尚未設定 API Key（點右上角 ⚙️ 填寫）', true);
         return;
       }
 
@@ -449,14 +518,14 @@
       if (!text && pendingImages.length === 0) return;
 
       const selected = document.getElementById('modelSelect').value;
-      if (!selected) return setStatus('請先設定 API Key 並載入可用模型', true);
+      if (!selected) return setStatus('尚未載入模型，請先點右上角 ⚙️ 確認 API Key', true);
 
       const cfg = getCfg();
       const idx = selected.indexOf(':');
       const provider = selected.slice(0, idx);
       const model = selected.slice(idx + 1);
-      if (provider === 'gemini' && !cfg.geminiKey) return toggleSettings(true);
-      if (provider === 'openai' && !cfg.openaiKey) return toggleSettings(true);
+      if (provider === 'gemini' && !cfg.geminiKey) return setStatus('尚未設定 Gemini API Key，請點右上角 ⚙️', true);
+      if (provider === 'openai' && !cfg.openaiKey) return setStatus('尚未設定 OpenAI API Key，請點右上角 ⚙️', true);
 
       if (!text && pendingImages.length > 0) {
         text = '請說明這張圖片的內容。';
@@ -509,10 +578,6 @@
       return new TextDecoder().decode(bytes);
     }
 
-    function toggleHistory(show) {
-      document.getElementById('historyModal').style.display = show ? 'block' : 'none';
-    }
-
     async function fetchGitHubFile(cfg, path) {
       const url = `https://api.github.com/repos/${cfg.ghOwner}/${cfg.ghRepo}/contents/${path}`;
       const res = await fetch(url, {
@@ -527,19 +592,18 @@
       return data;
     }
 
-    async function openHistory() {
+    async function loadHistoryList() {
       const cfg = getCfg();
-      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) {
-        toggleSettings(true);
-        return setStatus('請先設定 GitHub 帳號、倉庫與 Token', true);
-      }
-
-      toggleHistory(true);
       const listEl = document.getElementById('historyList');
       const statusEl = document.getElementById('historyStatus');
       listEl.innerHTML = '';
-      statusEl.textContent = '正在從 GitHub 讀取歷史筆記清單...';
 
+      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) {
+        statusEl.textContent = '尚未設定 GitHub 帳號、倉庫或 Token（請點下方「⚙️ API 設定」填寫）。';
+        return;
+      }
+
+      statusEl.textContent = '正在讀取 GitHub 歷史紀錄...';
       try {
         const url = `https://api.github.com/repos/${cfg.ghOwner}/${cfg.ghRepo}/git/trees/HEAD?recursive=1`;
         const res = await fetch(url, {
@@ -556,15 +620,16 @@
           .filter(item => item.type === 'blob' && /^mobile-notes\/.*\.md$/i.test(item.path))
           .sort((a, b) => b.path.localeCompare(a.path));
 
+        historyLoaded = true;
         if (!notes.length) {
-          statusEl.textContent = '目前倉庫內尚無手機對話紀錄（mobile-notes/）。';
+          statusEl.textContent = '目前倉庫內尚無對話紀錄。';
           return;
         }
 
-        statusEl.textContent = `共找到 ${notes.length} 筆對話（點選即可載入並接續對話）`;
+        statusEl.textContent = `共 ${notes.length} 筆紀錄（點選可繼續對話）`;
         for (const note of notes) {
           const btn = document.createElement('button');
-          btn.className = 'history-item';
+          btn.className = 'history-item' + (note.path === currentFilePath ? ' active' : '');
           const fileName = note.path.split('/').pop().replace(/\.md$/i, '');
           const pretty = fileName.replace(/^(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(\d{2})$/, '$1 $2:$3:$4');
 
@@ -655,7 +720,7 @@
                 ghPath: relPath
               });
             } catch (_) {
-              // 若單張圖片讀取失敗則略過，不影響文字載入
+              // 若單張圖片讀取失敗則略過
             }
           }
           delete m.imgPaths;
@@ -673,7 +738,7 @@
           appendMsg(m.role, m.content, m.role === 'assistant' ? m.model : '', m.images || []);
         }
 
-        toggleHistory(false);
+        closeDrawer();
         setStatus(`已載入歷史對話（可繼續追問）：${path}`);
       } catch (err) {
         statusEl.textContent = `載入失敗：${err.message}`;
@@ -705,7 +770,9 @@
     async function saveToGitHub() {
       if (messages.length === 0) return setStatus('尚無對話可存檔', true);
       const cfg = getCfg();
-      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) return toggleSettings(true);
+      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) {
+        return setStatus('尚未設定 GitHub 帳號、倉庫或 Token（請點右上角 ⚙️）', true);
+      }
 
       const now = new Date();
       const pad = n => String(n).padStart(2, '0');
@@ -758,6 +825,7 @@
           currentFileSha
         );
         currentFileSha = data.content.sha;
+        historyLoaded = false;
         setStatus(`已同步至 GitHub：${currentFilePath}`);
       } catch (err) {
         setStatus(`GitHub 同步失敗：${err.message}`, true);
