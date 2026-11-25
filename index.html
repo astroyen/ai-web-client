@@ -30,8 +30,13 @@
     .preview-remove { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #ef4444; color: #fff; font-size: 12px; padding: 0; display: flex; align-items: center; justify-content: center; line-height: 1; }
     footer { padding: 10px 12px max(10px, env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }
     #prompt { flex: 1; resize: none; min-height: 42px; max-height: 120px; }
-    #settingsModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); padding: 20px; z-index: 99; overflow-y: auto; }
+    #settingsModal, #historyModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); padding: 20px; z-index: 99; overflow-y: auto; }
     .modal-box { background: var(--card); max-width: 480px; margin: 20px auto; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 62dvh; overflow-y: auto; }
+    .history-item { text-align: left; background: #0f172a; border: 1px solid var(--border); padding: 10px 12px; border-radius: 8px; font-weight: 500; display: flex; flex-direction: column; gap: 3px; }
+    .history-item .h-title { font-size: 14px; color: var(--text); }
+    .history-item .h-path { font-size: 11px; color: var(--muted); word-break: break-all; }
+    .icon-btn { padding: 8px 9px; font-size: 15px; line-height: 1; }
     label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
     #status { font-size: 12px; color: #34d399; padding: 4px 12px; background: #0b1220; min-height: 22px; }
   </style>
@@ -41,10 +46,11 @@
     <select id="modelSelect" style="flex:1;" onchange="saveSelectedModel()">
       <option value="">載入可用模型中...</option>
     </select>
-    <button class="secondary" id="refreshBtn" onclick="loadModels()" title="重新抓取 API 可用模型">🔄</button>
-    <button class="secondary" onclick="newChat()">新對話</button>
-    <button class="secondary" onclick="saveToGitHub()">存檔</button>
-    <button class="secondary" onclick="toggleSettings(true)">⚙️</button>
+    <button class="secondary icon-btn" id="refreshBtn" onclick="loadModels()" title="重新抓取 API 可用模型">🔄</button>
+    <button class="secondary icon-btn" onclick="openHistory()" title="歷史對話紀錄">📜</button>
+    <button class="secondary icon-btn" onclick="newChat()" title="開啟新對話">➕</button>
+    <button class="secondary icon-btn" onclick="saveToGitHub()" title="存檔至 GitHub">💾</button>
+    <button class="secondary icon-btn" onclick="toggleSettings(true)" title="設定">⚙️</button>
   </header>
 
   <div id="status">就緒（金鑰僅儲存於本機瀏覽器）</div>
@@ -76,6 +82,20 @@
           <button class="secondary" onclick="toggleSettings(false)">取消</button>
           <button onclick="saveSettings()">儲存設定並更新模型</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="historyModal">
+    <div class="modal-box">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;">GitHub 歷史對話紀錄</h3>
+        <button class="secondary" onclick="openHistory()">重新整理</button>
+      </div>
+      <div id="historyStatus" style="font-size:12px; color:var(--muted);"></div>
+      <div id="historyList" class="history-list"></div>
+      <div style="display:flex; justify-content:flex-end; margin-top:4px;">
+        <button class="secondary" onclick="toggleHistory(false)">關閉</button>
       </div>
     </div>
   </div>
@@ -479,6 +499,186 @@
       let binary = '';
       for (const b of bytes) binary += String.fromCharCode(b);
       return btoa(binary);
+    }
+
+    function base64ToUtf8(b64) {
+      const clean = b64.replace(/\s/g, '');
+      const binary = atob(clean);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
+
+    function toggleHistory(show) {
+      document.getElementById('historyModal').style.display = show ? 'block' : 'none';
+    }
+
+    async function fetchGitHubFile(cfg, path) {
+      const url = `https://api.github.com/repos/${cfg.ghOwner}/${cfg.ghRepo}/contents/${path}`;
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Authorization': `Bearer ${cfg.ghToken}`,
+          'Accept': 'application/vnd.github+json'
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || `GitHub HTTP ${res.status}`);
+      return data;
+    }
+
+    async function openHistory() {
+      const cfg = getCfg();
+      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) {
+        toggleSettings(true);
+        return setStatus('請先設定 GitHub 帳號、倉庫與 Token', true);
+      }
+
+      toggleHistory(true);
+      const listEl = document.getElementById('historyList');
+      const statusEl = document.getElementById('historyStatus');
+      listEl.innerHTML = '';
+      statusEl.textContent = '正在從 GitHub 讀取歷史筆記清單...';
+
+      try {
+        const url = `https://api.github.com/repos/${cfg.ghOwner}/${cfg.ghRepo}/git/trees/HEAD?recursive=1`;
+        const res = await fetch(url, {
+          cache: 'no-store',
+          headers: {
+            'Authorization': `Bearer ${cfg.ghToken}`,
+            'Accept': 'application/vnd.github+json'
+          }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || `GitHub HTTP ${res.status}`);
+
+        const notes = (data.tree || [])
+          .filter(item => item.type === 'blob' && /^mobile-notes\/.*\.md$/i.test(item.path))
+          .sort((a, b) => b.path.localeCompare(a.path));
+
+        if (!notes.length) {
+          statusEl.textContent = '目前倉庫內尚無手機對話紀錄（mobile-notes/）。';
+          return;
+        }
+
+        statusEl.textContent = `共找到 ${notes.length} 筆對話（點選即可載入並接續對話）`;
+        for (const note of notes) {
+          const btn = document.createElement('button');
+          btn.className = 'history-item';
+          const fileName = note.path.split('/').pop().replace(/\.md$/i, '');
+          const pretty = fileName.replace(/^(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(\d{2})$/, '$1 $2:$3:$4');
+
+          const title = document.createElement('div');
+          title.className = 'h-title';
+          title.textContent = pretty;
+
+          const sub = document.createElement('div');
+          sub.className = 'h-path';
+          sub.textContent = note.path;
+
+          btn.appendChild(title);
+          btn.appendChild(sub);
+          btn.onclick = () => loadHistoryNote(note.path);
+          listEl.appendChild(btn);
+        }
+      } catch (err) {
+        statusEl.textContent = `讀取失敗：${err.message}`;
+      }
+    }
+
+    function parseNoteMarkdown(mdText) {
+      const parsed = [];
+      const lines = mdText.split(/\r?\n/);
+      let current = null;
+
+      for (const line of lines) {
+        const userMatch = line.match(/^## User\s*$/);
+        const asstMatch = line.match(/^## Assistant(?:\s*\((.+)\))?\s*$/);
+        if (userMatch) {
+          if (current) parsed.push(current);
+          current = { role: 'user', rawLines: [], model: '' };
+        } else if (asstMatch) {
+          if (current) parsed.push(current);
+          current = { role: 'assistant', rawLines: [], model: asstMatch[1] || '' };
+        } else if (current) {
+          current.rawLines.push(line);
+        }
+      }
+      if (current) parsed.push(current);
+
+      if (!parsed.length && mdText.trim()) {
+        return [{ role: 'assistant', content: mdText.trim(), model: 'note', imgPaths: [], images: [] }];
+      }
+
+      return parsed.map(item => {
+        const raw = item.rawLines.join('\n').trim();
+        const imgPaths = [];
+        const textWithoutImgs = raw
+          .replace(/!\[[^\]]*\]\((\.\/images\/[^)]+)\)/g, (_, p) => {
+            imgPaths.push(p);
+            return '';
+          })
+          .trim();
+        return {
+          role: item.role,
+          content: textWithoutImgs,
+          model: item.model,
+          imgPaths,
+          images: []
+        };
+      });
+    }
+
+    async function loadHistoryNote(path) {
+      const cfg = getCfg();
+      const statusEl = document.getElementById('historyStatus');
+      statusEl.textContent = `正在載入 ${path}...`;
+      setStatus(`正在載入歷史對話：${path}...`);
+
+      try {
+        const data = await fetchGitHubFile(cfg, path);
+        const mdText = base64ToUtf8(data.content || '');
+        const parsedMsgs = parseNoteMarkdown(mdText);
+        const baseDir = path.slice(0, path.lastIndexOf('/'));
+
+        for (const m of parsedMsgs) {
+          for (const relPath of m.imgPaths) {
+            try {
+              const fullImgPath = `${baseDir}/${relPath.replace(/^\.\//, '')}`;
+              const imgData = await fetchGitHubFile(cfg, fullImgPath);
+              const cleanB64 = (imgData.content || '').replace(/\s/g, '');
+              const mimeType = /\.png$/i.test(fullImgPath) ? 'image/png' : 'image/jpeg';
+              m.images.push({
+                mimeType,
+                base64: cleanB64,
+                dataUrl: `data:${mimeType};base64,${cleanB64}`,
+                ghPath: relPath
+              });
+            } catch (_) {
+              // 若單張圖片讀取失敗則略過，不影響文字載入
+            }
+          }
+          delete m.imgPaths;
+        }
+
+        messages = parsedMsgs;
+        pendingImages = [];
+        currentFilePath = path;
+        currentFileSha = data.sha;
+        renderPreviews();
+
+        const chat = document.getElementById('chat');
+        chat.innerHTML = '';
+        for (const m of messages) {
+          appendMsg(m.role, m.content, m.role === 'assistant' ? m.model : '', m.images || []);
+        }
+
+        toggleHistory(false);
+        setStatus(`已載入歷史對話（可繼續追問）：${path}`);
+      } catch (err) {
+        statusEl.textContent = `載入失敗：${err.message}`;
+        setStatus(`載入歷史對話失敗：${err.message}`, true);
+      }
     }
 
     async function uploadGitHubFile(cfg, path, base64Content, commitMsg, sha = null) {
