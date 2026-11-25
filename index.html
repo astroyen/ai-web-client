@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Personal AI Sync</title>
@@ -10,9 +10,10 @@
     :root { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --accent: #3b82f6; --border: #334155; }
     * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { margin: 0; background: var(--bg); color: var(--text); height: 100dvh; display: flex; flex-direction: column; }
-    header { display: flex; gap: 8px; align-items: center; padding: 10px 12px; background: var(--card); border-bottom: 1px solid var(--border); }
+    header { display: flex; gap: 6px; align-items: center; padding: max(10px, env(safe-area-inset-top)) 10px 10px; background: var(--card); border-bottom: 1px solid var(--border); }
     select, button, input, textarea { background: #0f172a; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
-    button { cursor: pointer; background: var(--accent); border: none; font-weight: 600; }
+    select { min-width: 0; }
+    button { cursor: pointer; background: var(--accent); border: none; font-weight: 600; white-space: nowrap; }
     button.secondary { background: #334155; }
     button:disabled { opacity: 0.5; }
     #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -20,7 +21,7 @@
     .user { align-self: flex-end; background: var(--accent); color: #fff; }
     .assistant { align-self: flex-start; background: var(--card); border: 1px solid var(--border); }
     .meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-    footer { padding: 10px 12px; background: var(--card); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }
+    footer { padding: 10px 12px max(10px, env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-end; }
     #prompt { flex: 1; resize: none; min-height: 42px; max-height: 120px; }
     #settingsModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); padding: 20px; z-index: 99; overflow-y: auto; }
     .modal-box { background: var(--card); max-width: 480px; margin: 20px auto; padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -30,12 +31,10 @@
 </head>
 <body>
   <header>
-    <select id="modelSelect" style="flex:1;">
-      <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash</option>
-      <option value="gemini:gemini-2.5-pro">Gemini 2.5 Pro</option>
-      <option value="openai:gpt-4o-mini">GPT-4o mini</option>
-      <option value="openai:gpt-4o">GPT-4o</option>
+    <select id="modelSelect" style="flex:1;" onchange="saveSelectedModel()">
+      <option value="">載入可用模型中...</option>
     </select>
+    <button class="secondary" id="refreshBtn" onclick="loadModels()" title="重新抓取 API 可用模型">🔄</button>
     <button class="secondary" onclick="newChat()">新對話</button>
     <button class="secondary" onclick="saveToGitHub()">存檔</button>
     <button class="secondary" onclick="toggleSettings(true)">⚙️</button>
@@ -54,7 +53,7 @@
       <h3 style="margin:0;">本機 API 與 GitHub 設定</h3>
       <label>Google Gemini API Key <input id="cfgGeminiKey" type="password" placeholder="AIza..." /></label>
       <label>OpenAI API Key <input id="cfgOpenAIKey" type="password" placeholder="sk-..." /></label>
-      <label>GitHub 帳號 (Owner) <input id="cfgGhOwner" type="text" placeholder="your-username" /></label>
+      <label>GitHub 帳號 (Owner) <input id="cfgGhOwner" type="text" placeholder="astroyen" /></label>
       <label>私人倉庫名稱 (Repo) <input id="cfgGhRepo" type="text" placeholder="ai-sync-notes" /></label>
       <label>GitHub PAT (Fine-grained Contents R/W) <input id="cfgGhToken" type="password" placeholder="github_pat_..." /></label>
       <label style="flex-direction:row; align-items:center; gap:8px;">
@@ -62,7 +61,7 @@
       </label>
       <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:8px;">
         <button class="secondary" onclick="toggleSettings(false)">取消</button>
-        <button onclick="saveSettings()">儲存設定</button>
+        <button onclick="saveSettings()">儲存設定並更新模型</button>
       </div>
     </div>
   </div>
@@ -79,6 +78,11 @@
       el.style.color = isErr ? '#f87171' : '#34d399';
     };
 
+    function saveSelectedModel() {
+      const val = document.getElementById('modelSelect').value;
+      if (val) localStorage.setItem('ai_sync_last_model', val);
+    }
+
     function toggleSettings(show) {
       const cfg = getCfg();
       if (show) {
@@ -92,7 +96,7 @@
       document.getElementById('settingsModal').style.display = show ? 'block' : 'none';
     }
 
-    function saveSettings() {
+    async function saveSettings() {
       const cfg = {
         geminiKey: document.getElementById('cfgGeminiKey').value.trim(),
         openaiKey: document.getElementById('cfgOpenAIKey').value.trim(),
@@ -103,7 +107,134 @@
       };
       localStorage.setItem('ai_sync_cfg', JSON.stringify(cfg));
       toggleSettings(false);
-      setStatus('設定已儲存至本機');
+      setStatus('設定已儲存，正在抓取可用模型...');
+      await loadModels();
+    }
+
+    function parseVersionScore(id) {
+      const m = id.match(/(\d+)(?:\.(\d+))?/);
+      if (!m) return 0;
+      return parseInt(m[1], 10) * 100 + (m[2] ? parseInt(m[2], 10) : 0);
+    }
+
+    async function fetchGeminiModels(apiKey) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=100`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || `Gemini Models HTTP ${res.status}`);
+
+      const excluded = /embedding|aqa|imagen|veo|tts|audio|live|robotics|computer-use|image-generation/i;
+      return (data.models || [])
+        .filter(m =>
+          Array.isArray(m.supportedGenerationMethods) &&
+          m.supportedGenerationMethods.includes('generateContent') &&
+          /^models\/gemini-/i.test(m.name) &&
+          !excluded.test(m.name)
+        )
+        .map(m => {
+          const id = m.name.replace(/^models\//, '');
+          return {
+            value: `gemini:${id}`,
+            label: m.displayName ? `${m.displayName} (${id})` : id,
+            id,
+            score: parseVersionScore(id)
+          };
+        })
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          const rank = id => (/flash(?!-lite)/i.test(id) ? 3 : /pro/i.test(id) ? 2 : 1);
+          return rank(b.id) - rank(a.id) || b.id.localeCompare(a.id);
+        });
+    }
+
+    async function fetchOpenAIModels(apiKey) {
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || `OpenAI Models HTTP ${res.status}`);
+
+      const allowed = /^(gpt-|o1|o3|o4|chatgpt-)/i;
+      const excluded = /audio|realtime|transcribe|tts|whisper|dall-e|embedding|moderation|instruct|image|sora|search|deep-research/i;
+      return (data.data || [])
+        .filter(m => allowed.test(m.id) && !excluded.test(m.id))
+        .sort((a, b) => (b.created || 0) - (a.created || 0))
+        .map(m => ({
+          value: `openai:${m.id}`,
+          label: m.id,
+          id: m.id
+        }));
+    }
+
+    async function loadModels() {
+      const cfg = getCfg();
+      const select = document.getElementById('modelSelect');
+      const refreshBtn = document.getElementById('refreshBtn');
+
+      if (!cfg.geminiKey && !cfg.openaiKey) {
+        select.innerHTML = '<option value="">請先點 ⚙️ 填入 API Key</option>';
+        setStatus('請先點右上角 ⚙️ 設定 Gemini 或 OpenAI API Key', true);
+        return;
+      }
+
+      refreshBtn.disabled = true;
+      setStatus('正在向 API 查詢最新可用模型...');
+
+      const errors = [];
+      let geminiModels = [];
+      let openaiModels = [];
+
+      const tasks = [];
+      if (cfg.geminiKey) {
+        tasks.push(
+          fetchGeminiModels(cfg.geminiKey)
+            .then(list => { geminiModels = list; })
+            .catch(err => errors.push(`Gemini: ${err.message}`))
+        );
+      }
+      if (cfg.openaiKey) {
+        tasks.push(
+          fetchOpenAIModels(cfg.openaiKey)
+            .then(list => { openaiModels = list; })
+            .catch(err => errors.push(`OpenAI: ${err.message}`))
+        );
+      }
+      await Promise.all(tasks);
+
+      select.innerHTML = '';
+      const appendGroup = (label, items) => {
+        if (!items.length) return;
+        const group = document.createElement('optgroup');
+        group.label = label;
+        for (const item of items) {
+          const opt = document.createElement('option');
+          opt.value = item.value;
+          opt.textContent = item.label;
+          group.appendChild(opt);
+        }
+        select.appendChild(group);
+      };
+
+      appendGroup('Google Gemini (即時可用)', geminiModels);
+      appendGroup('OpenAI (即時可用)', openaiModels);
+
+      const total = geminiModels.length + openaiModels.length;
+      if (total === 0) {
+        select.innerHTML = '<option value="">無法取得模型清單</option>';
+        setStatus(`抓取模型失敗：${errors.join(' | ')}`, true);
+      } else {
+        const last = localStorage.getItem('ai_sync_last_model');
+        if (last && Array.from(select.options).some(o => o.value === last)) {
+          select.value = last;
+        } else {
+          select.selectedIndex = 0;
+          saveSelectedModel();
+        }
+        const summary = `已載入 ${geminiModels.length} 個 Gemini、${openaiModels.length} 個 OpenAI 模型`;
+        setStatus(errors.length ? `${summary}（部分錯誤：${errors.join(' | ')}）` : summary, errors.length > 0);
+      }
+
+      refreshBtn.disabled = false;
     }
 
     function newChat() {
@@ -134,7 +265,7 @@
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }]
       }));
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,8 +295,13 @@
       const text = input.value.trim();
       if (!text) return;
 
+      const selected = document.getElementById('modelSelect').value;
+      if (!selected) return setStatus('請先設定 API Key 並載入可用模型', true);
+
       const cfg = getCfg();
-      const [provider, model] = document.getElementById('modelSelect').value.split(':');
+      const idx = selected.indexOf(':');
+      const provider = selected.slice(0, idx);
+      const model = selected.slice(idx + 1);
       if (provider === 'gemini' && !cfg.geminiKey) return toggleSettings(true);
       if (provider === 'openai' && !cfg.openaiKey) return toggleSettings(true);
 
@@ -190,6 +326,7 @@
           await saveToGitHub();
         }
       } catch (err) {
+        messages.pop();
         setStatus(`錯誤：${err.message}`, true);
       } finally {
         btn.disabled = false;
@@ -254,6 +391,10 @@
         setStatus(`GitHub 同步失敗：${err.message}`, true);
       }
     }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadModels();
+    });
   </script>
 </body>
 </html>
