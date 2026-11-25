@@ -191,7 +191,7 @@
       if (show) {
         document.getElementById('cfgGeminiKey').value = cfg.geminiKey || '';
         document.getElementById('cfgOpenAIKey').value = cfg.openaiKey || '';
-        document.getElementById('cfgGhOwner').value = cfg.ghOwner || '';
+        document.getElementById('cfgGhOwner').value = cfg.ghOwner || 'astroyen';
         document.getElementById('cfgGhRepo').value = cfg.ghRepo || 'ai-sync-notes';
         document.getElementById('cfgGhToken').value = cfg.ghToken || '';
         document.getElementById('cfgAutoSave').checked = cfg.autoSave !== false;
@@ -592,14 +592,23 @@
       return data;
     }
 
+    function getMissingGitHubFields(cfg) {
+      const missing = [];
+      if (!cfg.ghOwner) missing.push('GitHub 帳號');
+      if (!cfg.ghRepo) missing.push('私人倉庫名稱');
+      if (!cfg.ghToken) missing.push('GitHub Token');
+      return missing;
+    }
+
     async function loadHistoryList() {
       const cfg = getCfg();
       const listEl = document.getElementById('historyList');
       const statusEl = document.getElementById('historyStatus');
       listEl.innerHTML = '';
 
-      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) {
-        statusEl.textContent = '尚未設定 GitHub 帳號、倉庫或 Token（請點下方「⚙️ API 設定」填寫）。';
+      const missing = getMissingGitHubFields(cfg);
+      if (missing.length) {
+        statusEl.textContent = `缺少設定：${missing.join('、')}（請點下方「⚙️ API 設定」補齊並按儲存）`;
         return;
       }
 
@@ -770,8 +779,9 @@
     async function saveToGitHub() {
       if (messages.length === 0) return setStatus('尚無對話可存檔', true);
       const cfg = getCfg();
-      if (!cfg.ghOwner || !cfg.ghRepo || !cfg.ghToken) {
-        return setStatus('尚未設定 GitHub 帳號、倉庫或 Token（請點右上角 ⚙️）', true);
+      const missing = getMissingGitHubFields(cfg);
+      if (missing.length) {
+        return setStatus(`缺少設定：${missing.join('、')}（請點右上角 ⚙️ 補齊並按儲存）`, true);
       }
 
       const now = new Date();
